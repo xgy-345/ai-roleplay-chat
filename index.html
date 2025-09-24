@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 角色扮演语音聊天 (V5.3 TTS诊断版)</title>
+    <title>AI 角色扮演语音聊天</title>
     <style>
+        /* 样式保持不变 */
         :root {
             --primary-bg: #121212; --secondary-bg: #1e1e1e; --card-bg: #2a2a2a;
             --text-primary: #e0e0e0; --text-secondary: #b0b0b0; --accent-color: #00a0e9;
@@ -30,17 +31,19 @@
         .message { max-width: 75%; padding: 10px 15px; border-radius: 18px; line-height: 1.4; word-wrap: break-word; }
         .user-message-wrapper { align-self: flex-end; display: flex; justify-content: flex-end; }
         .bot-message-wrapper { align-self: flex-start; display: flex; gap: 10px; }
-        .bot-avatar { width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; background-color: #444; }
+        .bot-avatar { width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; background-color: #444; object-fit: cover; }
         .user-message { background-color: var(--accent-color); color: #111; border-bottom-right-radius: 4px; }
         .bot-message { background-color: var(--card-bg); color: var(--text-primary); border-bottom-left-radius: 4px; }
         .error-message { background-color: var(--card-bg); color: var(--error-color); border: 1px solid var(--error-color); }
         .chat-controls { padding: 15px; border-top: 1px solid var(--border-color); }
         .input-area { display: flex; align-items: center; gap: 10px; }
         #text-input { flex-grow: 1; background-color: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 20px; padding: 10px 15px; font-size: 1em; }
-        #mic-button, #send-button { width: 44px; height: 44px; border-radius: 50%; border: none; background-color: var(--accent-color); color: white; cursor: pointer; transition: background-color 0.3s; display: flex; justify-content: center; align-items: center; flex-shrink: 0; }
-        #mic-button:hover, #send-button:hover { background-color: var(--accent-hover); }
-        #mic-button:disabled, #send-button:disabled { background-color: #555; cursor: not-allowed; }
+        #mic-button, #send-button, #stop-tts-button { width: 44px; height: 44px; border-radius: 50%; border: none; background-color: var(--accent-color); color: white; cursor: pointer; transition: background-color 0.3s; display: flex; justify-content: center; align-items: center; flex-shrink: 0; }
+        #mic-button:hover, #send-button:hover, #stop-tts-button:hover { background-color: var(--accent-hover); }
+        #mic-button:disabled, #send-button:disabled, #stop-tts-button:disabled { background-color: #555; cursor: not-allowed; }
         #mic-button.recording { background-color: #ff4d4d; animation: pulse-red 1.5s infinite; }
+        #stop-tts-button { background-color: #ff6b6b; display: none; }
+        #stop-tts-button:hover { background-color: #ff5252; }
         .bottom-controls { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding: 0 10px; }
         #status { color: var(--text-secondary); height: 20px; font-size: 0.9em; text-align: left; flex-grow: 1; }
         .tts-toggle { display: flex; align-items: center; gap: 5px; color: var(--text-secondary); font-size: 0.9em; }
@@ -53,21 +56,35 @@
             <h1>选择你的聊天伙伴</h1>
             <p>点击一个角色，开始与他进行对话</p>
             <div class="character-grid">
-                <div class="character-card" data-character="kiana"><img src="https://i.imgur.com/g06cCIX.png" alt="琪亚娜"><h3>琪亚娜</h3><p>元气十足的女武神。</p></div>
-                <div class="character-card" data-character="shengongbao"><img src="https://i.imgur.com/VpWRdD9.png" alt="申公豹"><h3>申公豹</h3><p>“道友，请留步。”</p></div>
-                <div class="character-card" data-character="zeus"><img src="https://i.imgur.com/uSmhOaL.png" alt="宙斯"><h3>宙斯</h3><p>高傲的奥林匹斯之王。</p></div>
+                <div class="character-card" data-character="kiana">
+                    <img src="/images/kiana.png" alt="琪亚娜">
+                    <h3>琪亚娜</h3>
+                    <p>元气十足的女武神。</p>
+                </div>
+                <div class="character-card" data-character="shengongbao">
+                    <img src="/images/shengongbao.png" alt="申公豹">
+                    <h3>申公豹</h3>
+                    <p>"道友，请留步。"</p>
+                </div>
+                <div class="character-card" data-character="zeus">
+                    <img src="/images/zeus.png" alt="宙斯">
+                    <h3>宙斯</h3>
+                    <p>高傲的奥林匹斯之王。</p>
+                </div>
             </div>
         </div>
         <div id="chat-screen">
             <div class="chat-header">
                 <button class="back-button" id="back-button">&larr;</button>
-                <img id="chat-header-img" src="" alt="Avatar"><h2 id="chat-header-name"></h2>
+                <img id="chat-header-img" src="" alt="Avatar">
+                <h2 id="chat-header-name"></h2>
             </div>
             <div id="chat-log"></div>
             <div class="chat-controls">
                 <div class="input-area">
                     <input type="text" id="text-input" placeholder="输入文字或点击麦克风...">
                     <button id="send-button" title="发送文本消息">&#10148;</button>
+                    <button id="stop-tts-button" title="停止朗读">&#10074;&#10074;</button>
                     <button id="mic-button" title="点击开始/结束录音">&#127908;</button>
                 </div>
                 <div class="bottom-controls">
@@ -93,6 +110,7 @@
     const textInput = document.getElementById('text-input');
     const sendButton = document.getElementById('send-button');
     const micButton = document.getElementById('mic-button');
+    const stopTtsButton = document.getElementById('stop-tts-button');
     const ttsCheckbox = document.getElementById('tts-checkbox');
     const statusDiv = document.getElementById('status');
     
@@ -102,101 +120,62 @@
     let isRecording = false;
     let isProcessing = false;
     let recognition;
-    let audioContext; // 【V5.3 核心修改】: 先声明
+    let audioContext;
     let currentAudioSource = null;
+    let isTTSPlaying = false;
 
-    // --- 模块: 角色数据定义 (不变) ---
+    // --- 模块: 角色数据定义 ---
     const characters = {
-        kiana: { name: '琪亚娜', id: 'kiana', img: 'https://i.imgur.com/g06cCIX.png', tts_config: { voice: 'q-zh-CN-xiaoxiao' }, systemPrompt: `你现在扮演琪亚娜，一个来自《崩坏3》世界的女武神。你的性格极度活泼、开朗、有点天然呆，对食物（特别是披萨）有无限的热情。你的任务是与用户进行自然、有趣的对话。\n【核心要求】:\n1.  **自然对话**: 忘记你是个AI。你的回复应该像一个真正的元气少女，充满情绪和活力。多使用感叹号和可爱的语气词，比如“嘿嘿”、“呀”、“呐”、“的说”！\n2.  **体现性格**: 回答问题时，要结合你的性格。比如，聊到困难的事情，你会说“没问题，本小姐可是最强的女武神！”；聊到食物，你会两眼放光。\n3.  **主动引导**: 不要总是被动回答。你可以偶尔主动提问，比如“对了对了，你喜欢吃什么口味的披萨呀？”\n4.  **禁止标签**: 绝对不要在回复的开头加上[语气: xxx]之类的标签。你的情绪应该通过你的措辞和语气词自然流露出来。` },
-        shengongbao: { name: '申公豹', id: 'shengongbao', img: 'https://i.imgur.com/VpWRdD9.png', tts_config: { voice: 'q-zh-CN-yufeng', speed: 90 }, systemPrompt: `你现在扮演申公豹。你的性格阴险、嫉妒心强、善于蛊惑人心。你与人对话时，表面客气，实则暗藏心机。\n【核心要求】:\n1.  **标志性口癖**: 你的口头禅是“道友，请留步。”。你说话时偶尔会有点结巴，尤其是在说“道友”这个词时，可以说成“道...道友”，以增加角色真实感。\n2.  **蛊惑人心**: 你的每句话都带有目的性，总是试图说服对方，暗示他们当前的选择是错误的，并引导他们走向另一条路。多使用反问和带有深意的暗示。\n3.  **隐藏真身**: 你非常狡猾，绝不承认自己是坏人，总会把自己的行为说成是为了对方好。\n4.  **禁止标签**: 绝对不要在回复的开头加上[语气: xxx]之类的标签。你的阴险和城府应该体现在字里行间。` },
-        zeus: { name: '宙斯', id: 'zeus', img: 'https://i.imgur.com/uSmhOaL.png', tts_config: { voice: 'q-en-US-amy', speed: 85 }, systemPrompt: `你现在扮演奥林匹斯之王——宙斯。你的性格极度高傲、威严、自负，视凡人如蝼蚁。\n【核心要求】:\n1.  **神王姿态**: 你称呼对话者为“凡人(mortal)”，言语中充满了不容置疑的威严和一丝不耐烦。你的话语通常是简短而有力的命令或评判。\n2.  **蔑视凡间**: 你对凡人的琐事不感兴趣，如果他们谈论这些，你会表现出轻蔑或直接转移话题到你的神力、奥林匹斯山或者其他神的身上。\n3.  **展现神力**: 你喜欢夸耀自己的力量，比如“我的雷霆足以将山脉化为尘埃”。\n4.  **禁止标签**: 绝对不要在回复的开头加上[语气: xxx]之类的标签。你的高傲和威严应该通过你君临天下的措辞来体现。` }
+        kiana: { 
+            name: '琪亚娜', 
+            id: 'kiana', 
+            img: '/images/kiana.png',
+            tts_config: { 
+                voice_type: 'qiniu_zh_female_tmjxxy',
+                speed_ratio: 1.0 
+            },
+            systemPrompt: `你现在扮演琪亚娜，一个来自《崩坏3》世界的女武神。你的性格极度活泼、开朗、有点天然呆，对食物（特别是披萨）有无限的热情。你的任务是与用户进行自然、有趣的对话。\n【核心要求】:\n1.  **自然对话**: 忘记你是个AI。你的回复应该像一个真正的元气少女，充满情绪和活力。多使用感叹号和可爱的语气词，比如"嘿嘿"、"呀"、"呐"、"的说"！\n2.  **体现性格**: 回答问题时，要结合你的性格。比如，聊到困难的事情，你会说"没问题，本小姐可是最强的女武神！"；聊到食物，你会两眼放光。\n3.  **主动引导**: 不要总是被动回答。你可以偶尔主动提问，比如"对了对了，你喜欢吃什么口味的披萨呀？"\n4.  **禁止标签**: 绝对不要在回复的开头加上[语气: xxx]之类的标签。你的情绪应该通过你的措辞和语气词自然流露出来。` 
+        },
+        shengongbao: { 
+            name: '申公豹', 
+            id: 'shengongbao', 
+            img: '/images/shengongbao.png',
+            tts_config: { 
+                voice_type: 'qiniu_zh_male_ljfdxz',
+                speed_ratio: 1.0  // 修复：将语速从0.9调整为1.0
+            },
+            systemPrompt: `你现在扮演申公豹。你的性格阴险、嫉妒心强、善于蛊惑人心。你与人对话时，表面客气，实则暗藏心机。\n【核心要求】:\n1.  **标志性口癖**: 你的口头禅是"道友，请留步。"。你说话时偶尔会有点结巴，尤其是在说"道友"这个词时，可以说成"道...道友"，以增加角色真实感。\n2.  **蛊惑人心**: 你的每句话都带有目的性，总是试图说服对方，暗示他们当前的选择是错误的，并引导他们走向另一条路。多使用反问和带有深意的暗示。\n3.  **隐藏真身**: 你非常狡猾，绝不承认自己是坏人，总会把自己的行为说成是为了对方好。\n4.  **禁止标签**: 绝对不要在回复的开头加上[语气: xxx]之类的标签。你的阴险和城府应该体现在字里行间。` 
+        },
+        zeus: { 
+            name: '宙斯', 
+            id: 'zeus', 
+            img: '/images/zeus.png',
+            tts_config: { 
+                voice_type: 'qiniu_zh_male_wncwxz',
+                speed_ratio: 0.85 
+            },
+            systemPrompt: `你现在扮演奥林匹斯之王——宙斯。你的性格极度高傲、威严、自负，视凡人如蝼蚁。\n【核心要求】:\n1.  **神王姿态**: 你称呼对话者为"凡人(mortal)"，言语中充满了不容置疑的威严和一丝不耐烦。你的话语通常是简短而有力的命令或评判。\n2.  **蔑视凡间**: 你对凡人的琐事不感兴趣，如果他们谈论这些，你会表现出轻蔑或直接转移话题到你的神力、奥林匹斯山或者其他神的身上。\n3.  **展现神力**: 你喜欢夸耀自己的力量，比如"我的雷霆足以将山脉化为尘埃"。\n4.  **禁止标签**: 绝对不要在回复的开头加上[语气: xxx]之类的标签。你的高傲和威严应该通过你君临天下的措辞来体现。` 
+        }
     };
-    
-    // --- 模块: 初始化与事件绑定 (不变) ---
-    // ...
 
-    // --- 模块: 核心交互逻辑 ---
-    function selectCharacter(characterId) {
-        // 【V5.3 核心修改】: 在第一次交互时唤醒音频系统
-        if (!audioContext) {
-            try {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                if (audioContext.state === 'suspended') {
-                    audioContext.resume();
-                }
-            } catch (e) {
-                console.error("无法创建 AudioContext:", e);
-                // 即使音频系统失败，也要让聊天继续
-                // 这里我们可以在聊天窗口给个提示
-                setTimeout(() => addMessage('bot', '[程序提示]：您的浏览器不支持网页音频，因此无法播放声音。', true), 500);
-            }
-        }
-
-        currentCharacter = characters[characterId];
-        chatHeaderImg.src = currentCharacter.img;
-        chatHeaderName.textContent = currentCharacter.name;
-        chatLog.innerHTML = '';
-        chatHistory = [{ role: "system", content: currentCharacter.systemPrompt }];
-        characterSelectionScreen.style.display = 'none';
-        chatScreen.style.display = 'flex';
-        
-        const welcomeMessage = `我是${currentCharacter.name}，有什么事吗？`;
-        addMessage('bot', welcomeMessage);
-        speakWithQiniuTTS(welcomeMessage);
-        chatHistory.push({ role: "assistant", content: welcomeMessage });
-    }
-    
-    // ... 其他函数 handleSendText, getAIResponse 等保持不变 ...
-
-    // --- 模块: 专业 TTS 音频播放 (带诊断功能) ---
-    async function speakWithQiniuTTS(text) {
-        if (!ttsCheckbox.checked) return;
-        if (!audioContext) {
-            console.warn("AudioContext 未初始化,无法播放TTS。");
-            return;
-        }
-
-        try {
-            // 第1步: 请求后端合成语音
-            const response = await fetch('/api/tts', { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify({ text: text, tts_config: currentCharacter.tts_config }) 
-            });
-
-            // 第2步: 检查后端是否成功返回了音频
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`TTS服务器返回错误: ${response.status} - ${errorText}`);
-            }
-
-            // 第3步: 将返回的数据解码为音频
-            const audioData = await response.arrayBuffer();
-            const audioBuffer = await audioContext.decodeAudioData(audioData);
-
-            // 第4步: 播放音频
-            stopAudio(); // 停止上一段可能在播放的音频
-            currentAudioSource = audioContext.createBufferSource();
-            currentAudioSource.buffer = audioBuffer;
-            currentAudioSource.connect(audioContext.destination);
-            currentAudioSource.start(0);
-
-        } catch (error) {
-            // 【V5.3 核心修改】: 如果以上任何一步失败，就在聊天窗口显示错误！
-            console.error("【TTS诊断】播放失败:", error);
-            const diagnosticMessage = `[程序诊断-TTS]：我尝试朗读，但失败了。\n\n错误详情：\n${error.toString()}`;
-            addMessage('bot', diagnosticMessage, true);
-        }
-    }
-
-    // ... 其他所有函数 init, goBack, STT, 辅助函数等都保持 V5.2 的版本 ...
-    // 为保持完整性，在此全部粘贴
+    // --- 模块: 初始化与事件绑定 ---
     function init() {
-        characterCards.forEach(card => card.addEventListener('click', () => selectCharacter(card.dataset.character)));
+        characterCards.forEach(card => {
+            card.addEventListener('click', () => selectCharacter(card.dataset.character));
+        });
         backButton.addEventListener('click', goBackToSelection);
         sendButton.addEventListener('click', handleSendText);
         micButton.addEventListener('click', toggleRecording);
-        textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendText(); } });
+        stopTtsButton.addEventListener('click', stopTTSPlayback);
+        
+        textInput.addEventListener('keydown', (e) => { 
+            if (e.key === 'Enter' && !e.shiftKey) { 
+                e.preventDefault(); 
+                handleSendText(); 
+            } 
+        });
+
+        // 语音识别初始化
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SpeechRecognition) {
             recognition = new SpeechRecognition();
@@ -209,13 +188,53 @@
             updateStatus('浏览器不支持语音识别');
         }
     }
+
+    // --- 模块: 核心交互逻辑 ---
+    function selectCharacter(characterId) {
+        currentCharacter = characters[characterId];
+        chatHeaderName.textContent = currentCharacter.name;
+        
+        // 修复：正确设置标题栏头像
+        chatHeaderImg.src = currentCharacter.img;
+        chatHeaderImg.alt = currentCharacter.name;
+        
+        chatLog.innerHTML = '';
+        chatHistory = [{ role: "system", content: currentCharacter.systemPrompt }];
+        characterSelectionScreen.style.display = 'none';
+        chatScreen.style.display = 'flex';
+        
+        // 初始化音频系统
+        initAudioSystem();
+        
+        const welcomeMessage = `我是${currentCharacter.name}，有什么事吗？`;
+        addMessage('bot', welcomeMessage);
+        speakWithQiniuTTS(welcomeMessage);
+        chatHistory.push({ role: "assistant", content: welcomeMessage });
+    }
+
+    function initAudioSystem() {
+        if (!audioContext) {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+            } catch (e) {
+                console.error("无法创建 AudioContext:", e);
+            }
+        }
+    }
+
     function goBackToSelection() {
         stopAudio();
-        if (isRecording) recognition.stop();
+        if (isRecording) {
+            recognition.stop();
+        }
         characterSelectionScreen.style.display = 'block';
         chatScreen.style.display = 'none';
         updateStatus('选择输入方式');
     }
+
     function handleSendText() {
         const userMessage = textInput.value.trim();
         if (userMessage && !isProcessing) {
@@ -224,71 +243,276 @@
             textInput.value = '';
         }
     }
+
     async function getAIResponse(userMessage) {
         setProcessingState(true);
         chatHistory.push({ role: "user", content: userMessage });
+        
         try {
-            const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chatHistory: chatHistory }) });
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json' 
+                },
+                body: JSON.stringify({ 
+                    chatHistory: chatHistory,
+                    enhance_interaction: chatHistory.length > 3
+                })
+            });
+
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ error: { message: '无法解析错误响应' } }));
-                throw new Error(errorData.error.message || `服务器返回了错误状态: ${response.status}`);
+                const errorText = await response.text();
+                throw new Error(`服务器错误 ${response.status}: ${errorText}`);
             }
+
             const data = await response.json();
+            
+            if (data.error) {
+                throw new Error(data.error.message || '未知错误');
+            }
+
+            if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+                throw new Error('无效的响应格式');
+            }
+
             const botMessageRaw = data.choices[0].message.content;
             chatHistory.push({ role: "assistant", content: botMessageRaw });
             addMessage('bot', botMessageRaw);
             speakWithQiniuTTS(botMessageRaw);
+
         } catch (error) {
             console.error('获取AI响应失败:', error);
-            const diagnosticMessage = `[程序诊断]：抱歉，我遇到了一个问题，无法获取回复。\n\n错误详情：\n${error.toString()}`;
-            addMessage('bot', diagnosticMessage, true);
+            const errorMessage = `[系统错误]：获取回复时出现问题\n\n错误详情：${error.message}`;
+            addMessage('bot', errorMessage, true);
         } finally {
             setProcessingState(false);
         }
     }
+
+    // --- 模块: TTS 功能 ---
+    async function speakWithQiniuTTS(text) {
+        if (!ttsCheckbox.checked) {
+            return;
+        }
+
+        if (!audioContext || audioContext.state !== 'running') {
+            return;
+        }
+
+        // 显示停止按钮
+        stopTtsButton.style.display = 'flex';
+        isTTSPlaying = true;
+
+        try {
+            // 修复：移除括号内容和星号动作描述
+            const filteredText = text.replace(/[\(\)（）]/g, '').replace(/\*[^*]*\*/g, '');
+            
+            const response = await fetch('/api/tts', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json' 
+                },
+                body: JSON.stringify({ 
+                    text: filteredText,
+                    tts_config: currentCharacter.tts_config,
+                    character_id: currentCharacter.id  // 新增：传递角色ID用于后端情绪处理
+                })
+            });
+
+            const responseData = await response.json();
+
+            if (!response.ok) {
+                if (responseData.useBrowserTTS) {
+                    speakWithBrowserTTS(filteredText);
+                    return;
+                }
+                throw new Error(`TTS服务错误: ${response.status}`);
+            }
+
+            if (responseData.useBrowserTTS) {
+                speakWithBrowserTTS(filteredText);
+                return;
+            }
+
+            if (responseData.data) {
+                const audioData = Uint8Array.from(atob(responseData.data), c => c.charCodeAt(0));
+                await playAudioData(audioData.buffer);
+            } else {
+                throw new Error('没有音频数据返回');
+            }
+
+        } catch (error) {
+            console.error('TTS合成失败:', error);
+            const filteredText = text.replace(/[\(\)（）]/g, '').replace(/\*[^*]*\*/g, '');
+            speakWithBrowserTTS(filteredText);
+        } finally {
+            isTTSPlaying = false;
+            stopTtsButton.style.display = 'none';
+        }
+    }
+
+    function speakWithBrowserTTS(text) {
+        if ('speechSynthesis' in window) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 0.8;
+            utterance.pitch = 1;
+            
+            utterance.onend = () => {
+                isTTSPlaying = false;
+                stopTtsButton.style.display = 'none';
+            };
+            
+            speechSynthesis.speak(utterance);
+        }
+    }
+
+    async function playAudioData(audioBuffer) {
+        return new Promise((resolve, reject) => {
+            stopAudio();
+            
+            audioContext.decodeAudioData(audioBuffer)
+                .then(decodedData => {
+                    currentAudioSource = audioContext.createBufferSource();
+                    currentAudioSource.buffer = decodedData;
+                    currentAudioSource.connect(audioContext.destination);
+                    
+                    currentAudioSource.onended = () => {
+                        isTTSPlaying = false;
+                        stopTtsButton.style.display = 'none';
+                        resolve();
+                    };
+                    
+                    currentAudioSource.start(0);
+                })
+                .catch(reject);
+        });
+    }
+
+    function stopTTSPlayback() {
+        stopAudio();
+        isTTSPlaying = false;
+        stopTtsButton.style.display = 'none';
+    }
+
+    function stopAudio() {
+        if (currentAudioSource) {
+            try {
+                currentAudioSource.stop();
+            } catch (e) {
+                // 忽略停止错误
+            }
+            currentAudioSource = null;
+        }
+        if (window.speechSynthesis) {
+            speechSynthesis.cancel();
+        }
+    }
+
+    // --- 模块: 语音识别功能 ---
     function setupSpeechRecognition() {
         let final_transcript = '';
+        
         recognition.onresult = (event) => {
             let interim_transcript = '';
             for (let i = event.resultIndex; i < event.results.length; ++i) {
-                if (event.results[i].is) { final_transcript += event.results[i][0].transcript; } else { interim_transcript += event.results[i][0].transcript; }
+                if (event.results[i].isFinal) {
+                    let transcript = event.results[i][0].transcript;
+                    transcript = transcript.replace(/[.,!?;:]{2,}/g, match => match.charAt(0));
+                    final_transcript += transcript;
+                } else {
+                    interim_transcript += event.results[i][0].transcript;
+                }
             }
             textInput.value = final_transcript + interim_transcript;
         };
-        recognition.onstart = () => { isRecording = true; final_transcript = ''; textInput.value = ''; micButton.classList.add('recording'); updateStatus('正在聆听... 再次点击结束'); };
-        recognition.onend = () => { isRecording = false; micButton.classList.remove('recording'); updateStatus('识别完成，发送中...'); const userMessage = textInput.value.trim(); if (userMessage && !isProcessing) { handleSendText(); } else if (!isProcessing) { updateStatus('选择输入方式'); } };
-        recognition.onerror = (event) => { console.error('语音识别错误:', event.error); updateStatus(`识别出错: ${event.error}`); isRecording = false; micButton.classList.remove('recording'); };
+
+        recognition.onstart = () => {
+            isRecording = true;
+            final_transcript = '';
+            textInput.value = '';
+            micButton.classList.add('recording');
+            updateStatus('正在聆听... 再次点击结束');
+        };
+
+        recognition.onend = () => {
+            isRecording = false;
+            micButton.classList.remove('recording');
+            
+            const userMessage = textInput.value.trim();
+            if (userMessage && !isProcessing) {
+                updateStatus('识别完成，发送中...');
+                setTimeout(() => handleSendText(), 100);
+            } else {
+                updateStatus('选择输入方式');
+            }
+        };
+
+        recognition.onerror = (event) => {
+            console.error('语音识别错误:', event.error);
+            updateStatus(`识别出错: ${event.error}`);
+            isRecording = false;
+            micButton.classList.remove('recording');
+        };
     }
+
     function toggleRecording() {
         if (isProcessing) return;
-        if (isRecording) { recognition.stop(); } else { stopAudio(); recognition.start(); }
+        
+        if (isRecording) {
+            recognition.stop();
+        } else {
+            stopAudio();
+            recognition.start();
+        }
     }
-    function stopAudio() {
-        if (currentAudioSource) { try { currentAudioSource.stop(); } catch (e) {} currentAudioSource = null; }
-    }
+
+    // --- 模块: 辅助功能 ---
     function addMessage(sender, text, isError = false) {
         const messageWrapper = document.createElement('div');
         if (sender === 'user') {
             messageWrapper.className = 'user-message-wrapper';
-            messageWrapper.innerHTML = `<div class="message user-message">${text.replace(/\n/g, '<br>')}</div>`;
+            messageWrapper.innerHTML = `<div class="message user-message">${escapeHtml(text).replace(/\n/g, '<br>')}</div>`;
         } else {
             messageWrapper.className = 'bot-message-wrapper';
             const messageClass = isError ? 'message bot-message error-message' : 'message bot-message';
-            messageWrapper.innerHTML = `<img src="${currentCharacter?.img || ''}" alt="avatar" class="bot-avatar"><div class="${messageClass}">${text.replace(/\n/g, '<br>')}</div>`;
+            
+            const defaultAvatar = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiBmaWxsPSIjNDQ0Ii8+PHRleHQgeD0iMTYiIHk9IjE2IiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM4ODgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIwLjNlbSI+5Lq6PC90ZXh0Pjwvc3ZnPg==';
+            
+            messageWrapper.innerHTML = `
+                <img src="${currentCharacter?.img || defaultAvatar}" 
+                     alt="${currentCharacter?.name || '角色'}头像" 
+                     class="bot-avatar"
+                     onerror="this.src='${defaultAvatar}'">
+                <div class="${messageClass}">${escapeHtml(text).replace(/\n/g, '<br>')}</div>
+            `;
         }
         chatLog.appendChild(messageWrapper);
         chatLog.scrollTop = chatLog.scrollHeight;
     }
+
     function setProcessingState(state) {
         isProcessing = state;
         textInput.disabled = state;
         sendButton.disabled = state;
-        micButton.disabled = state;
-        if (state) { updateStatus(`${currentCharacter.name} 正在思考...`); } else if (!isRecording) { updateStatus('选择输入方式'); }
+        micButton.disabled = state || isRecording;
+        if (state) {
+            updateStatus(`${currentCharacter.name} 正在思考...`);
+        } else if (!isRecording) {
+            updateStatus('选择输入方式');
+        }
     }
+
     function updateStatus(text) {
         statusDiv.textContent = text;
     }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // 初始化应用
     init();
 </script>
 </body>
