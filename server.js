@@ -22,149 +22,6 @@ if (!fs.existsSync(imagesDir)) {
 
 // 提供本地头像文件服务
 app.use('/images', express.static(imagesDir));
-
-// 本地头像映射配置
-const localAvatars = {
-    kiana: 'kiana.png',
-    shengongbao: 'shengongbao.png', 
-    zeus: 'zeus.png'
-};
-
-// --- 新增：情绪化TTS处理模块 ---
-function processTextForTTS(text, characterId) {
-    // 移除*...*之间的动作描述（前端已经移除，这里做二次保障）
-    let processedText = text.replace(/\*[^*]*\*/g, '');
-    
-    // 角色特定的情绪处理
-    switch (characterId) {
-        case 'shengongbao':
-            // 申公豹：随机卡壳 + 意味深长的停顿
-            processedText = processShengongbaoStutter(processedText);
-            
-            // 添加意味深长的省略号（20%概率）
-            if (Math.random() < 0.2) {
-                const sentences = processedText.split(/[。！？]/);
-                if (sentences.length > 1) {
-                    const insertIndex = Math.floor(Math.random() * (sentences.length - 1)) + 1;
-                    sentences.splice(insertIndex, 0, '......');
-                    processedText = sentences.join('。').replace(/。。/g, '。');
-                }
-            }
-            break;
-            
-        case 'zeus':
-            // 宙斯：威严的语气，偶尔加重关键词
-            if (Math.random() < 0.3) {
-                const importantWords = ['凡人', '神', '雷霆', '奥林匹斯', '力量'];
-                for (const word of importantWords) {
-                    if (processedText.includes(word)) {
-                        processedText = processedText.replace(word, word + '！');
-                        break;
-                    }
-                }
-            }
-            break;
-            
-        case 'kiana':
-            // 琪亚娜：活泼的语气，添加语气词
-            if (Math.random() < 0.4) {
-                const exclamations = ['呀', '呐', '嘿嘿', '哦'];
-                const randomExclamation = exclamations[Math.floor(Math.random() * exclamations.length)];
-                
-                // 在句子开头或结尾随机添加语气词
-                if (Math.random() < 0.5) {
-                    processedText = randomExclamation + '，' + processedText;
-                } else {
-                    processedText = processedText + '，' + randomExclamation + '！';
-                }
-            }
-            break;
-    }
-    
-    return processedText;
-}
-
-// --- 新增：申公豹卡壳逻辑 ---
-function processShengongbaoStutter(text) {
-    if (!text || text.length < 2) return text;
-    
-    let result = text;
-    const stutterWords = ['道友', '这个', '那个', '其实', '不过', '但是', '所以'];
-    const stutterPatterns = [
-        // 轻微卡壳：重复第一个字1次
-        (word) => {
-            const firstChar = word.charAt(0);
-            return firstChar + '...' + word;
-        },
-        // 中度卡壳：重复第一个字2次
-        (word) => {
-            const firstChar = word.charAt(0);
-            return firstChar + firstChar + '...' + word;
-        },
-        // 严重卡壳：重复整个词
-        (word) => {
-            return word + '...' + word;
-        },
-        // 犹豫型卡壳
-        (word) => {
-            return word.charAt(0) + '...呃...' + word.substring(1);
-        }
-    ];
-    
-    // 随机决定是否卡壳（30%概率）
-    if (Math.random() < 0.3) {
-        // 选择要卡壳的词（优先选择特定词，如果没有则随机选一个词）
-        let targetWord = '';
-        let targetIndex = -1;
-        
-        // 先检查是否有特定的卡壳词
-        for (const word of stutterWords) {
-            const index = result.indexOf(word);
-            if (index !== -1) {
-                targetWord = word;
-                targetIndex = index;
-                break;
-            }
-        }
-        
-        // 如果没有特定词，随机选择一个中文词
-        if (!targetWord) {
-            const words = result.match(/[\u4e00-\u9fa5]{2,}/g) || [];
-            if (words.length > 0) {
-                targetWord = words[Math.floor(Math.random() * words.length)];
-                targetIndex = result.indexOf(targetWord);
-            }
-        }
-        
-        // 应用卡壳
-        if (targetWord && targetIndex !== -1) {
-            const pattern = stutterPatterns[Math.floor(Math.random() * stutterPatterns.length)];
-            const stutteredWord = pattern(targetWord);
-            result = result.substring(0, targetIndex) + stutteredWord + result.substring(targetIndex + targetWord.length);
-            
-            // 小概率双重卡壳
-            if (Math.random() < 0.2) {
-                const secondWords = result.match(/[\u4e00-\u9fa5]{2,}/g) || [];
-                if (secondWords.length > 1) {
-                    let secondWord;
-                    do {
-                        secondWord = secondWords[Math.floor(Math.random() * secondWords.length)];
-                    } while (secondWord === targetWord);
-                    
-                    const secondIndex = result.indexOf(secondWord);
-                    if (secondIndex !== -1 && Math.abs(secondIndex - targetIndex) > 10) {
-                        const secondPattern = stutterPatterns[Math.floor(Math.random() * stutterPatterns.length)];
-                        const secondStuttered = secondPattern(secondWord);
-                        result = result.substring(0, secondIndex) + secondStuttered + result.substring(secondIndex + secondWord.length);
-                    }
-                }
-            }
-        }
-    }
-    
-    return result;
-}
-
 // --- 增强的TTS API ---
 app.post('/api/tts', async (req, res) => {
     try {
@@ -184,31 +41,12 @@ app.post('/api/tts', async (req, res) => {
         // 情绪化处理
         let voiceType = tts_config.voice_type || 'qiniu_zh_male_ljfdxz';
         let speedRatio = tts_config.speed_ratio || 1.0;
-        
-        // 应用情绪化TTS处理
+    
         let emotionalText = text;
-        if (character_id) {
-            emotionalText = processTextForTTS(text, character_id);
-        }
-        
-        // 申公豹的随机卡壳效果（修复：提高基础语速）
+      
+        // 申公豹的随机卡壳效果（完全随机，不依赖特定关键词）
         if (character_id === 'shengongbao') {
-            // 随机决定是否卡壳（70%概率卡壳）
-            if (Math.random() < 0.7) {
-                // 随机选择卡壳位置
-                const stutterWords = ['道友', '这个', '那个', '其实', '不过', '但是', '所以', '然后', '就是', '真的', '非常', '知道', '觉得'];
-                const randomWord = stutterWords[Math.floor(Math.random() * stutterWords.length)];
-                
-                // 随机卡壳长度（1-3个点）
-                const dotCount = Math.floor(Math.random() * 3) + 1;
-                const dots = '.'.repeat(dotCount);
-                
-                // 修复：提高申公豹基础语速，卡壳时稍微减慢但不要太慢
-                speedRatio *= (0.8 + Math.random() * 0.2); // 从0.6-0.8提高到0.8-1.0
-                
-                emotionalText = emotionalText.replace(new RegExp(randomWord, 'g'), 
-                    randomWord.charAt(0) + dots + randomWord);
-            }
+    emotionalText = addRandomStutter(emotionalText);
         }
         
         // 自动语言检测和音色适配
@@ -373,6 +211,13 @@ app.post('/api/chat', async (req, res) => {
 app.get('/api/character/:id/avatar', (req, res) => {
     const characterId = req.params.id;
     
+    // 本地头像映射配置
+    const localAvatars = {
+        kiana: 'kiana.png',
+        shengongbao: 'shengongbao.png', 
+        zeus: 'zeus.png'
+    };
+    
     // 检查本地文件是否存在
     const localFileExists = fs.existsSync(path.join(imagesDir, localAvatars[characterId]));
     
@@ -394,6 +239,58 @@ app.get('/api/character/:id/avatar', (req, res) => {
         });
     }
 });
+// 新增：完全随机卡壳函数（优化版）
+function addRandomStutter(text) {
+    if (text.length < 3) return text;
+    
+    const words = text.split('');
+    let result = [];
+    let stutterChance = 0.15; // 降低到15%的概率（原来是30%）
+    
+    for (let i = 0; i < words.length; i++) {
+        result.push(words[i]);
+        
+        // 检查下一个字符是否是标点符号
+        const nextChar = i < words.length - 1 ? words[i + 1] : '';
+        const isBeforePunctuation = /[，。！？；：""''《》()【】]/.test(nextChar);
+        
+        // 避免在标点符号前的最后一个字卡壳
+        if (isBeforePunctuation) {
+            continue;
+        }
+        
+        // 随机决定是否在当前字符后卡壳（降低频率）
+        if (Math.random() < stutterChance && i < words.length - 1) {
+            const currentChar = words[i];
+            
+            // 只在非标点符号的字符后卡壳
+            if (!/[，。！？；：""''《》()【】]/.test(currentChar)) {
+                // 随机选择卡壳模式：重复字符或添加停顿
+                const stutterType = Math.random() > 0.5 ? 'repeat' : 'pause';
+                
+                if (stutterType === 'repeat') {
+                    // 重复字符卡壳（降低重复次数）
+                    const repeatCount = Math.floor(Math.random() * 2) + 1; // 1-2次
+                    for (let j = 0; j < repeatCount; j++) {
+                        result.push(currentChar);
+                    }
+                } else {
+                    // 停顿卡壳（添加省略号，降低停顿长度）
+                    const pauseLength = Math.floor(Math.random() * 2) + 1; // 1-2个点
+                    result.push('…'.repeat(pauseLength));
+                }
+            }
+        }
+    }
+    
+    // 特别处理"道友请留步" - 强制卡壳（但只在句中出现时）
+    if (text.includes('道友请留步') && !text.endsWith('道友请留步')) {
+        // 只在不是句子结尾时才卡壳
+        result = result.join('').replace(/道友请留步/g, '道…道…道友请留步').split('');
+    }
+    
+    return result.join('');
+}
 
 app.listen(port, () => {
     console.log(`服务器启动成功: http://localhost:${port}`);

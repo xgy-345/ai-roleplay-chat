@@ -142,7 +142,7 @@
             img: '/images/shengongbao.png',
             tts_config: { 
                 voice_type: 'qiniu_zh_male_ljfdxz',
-                speed_ratio: 1.0  // 修复：将语速从0.9调整为1.0
+                speed_ratio: 1.0
             },
             systemPrompt: `你现在扮演申公豹。你的性格阴险、嫉妒心强、善于蛊惑人心。你与人对话时，表面客气，实则暗藏心机。\n【核心要求】:\n1.  **标志性口癖**: 你的口头禅是"道友，请留步。"。你说话时偶尔会有点结巴，尤其是在说"道友"这个词时，可以说成"道...道友"，以增加角色真实感。\n2.  **蛊惑人心**: 你的每句话都带有目的性，总是试图说服对方，暗示他们当前的选择是错误的，并引导他们走向另一条路。多使用反问和带有深意的暗示。\n3.  **隐藏真身**: 你非常狡猾，绝不承认自己是坏人，总会把自己的行为说成是为了对方好。\n4.  **禁止标签**: 绝对不要在回复的开头加上[语气: xxx]之类的标签。你的阴险和城府应该体现在字里行间。` 
         },
@@ -160,9 +160,49 @@
 
     // --- 模块: 初始化与事件绑定 ---
     function init() {
+        let hoverTimer = null;
+        let isHoverSpeaking = false;
+
         characterCards.forEach(card => {
-            card.addEventListener('click', () => selectCharacter(card.dataset.character));
-        });
+        card.addEventListener('click', () => {
+    // 点击时停止悬停播报
+        if (isHoverSpeaking) {
+            stopAudio();
+            isHoverSpeaking = false;
+        }
+        if (hoverTimer) {
+            clearTimeout(hoverTimer);
+            hoverTimer = null;
+        }
+        selectCharacter(card.dataset.character);
+    });
+    
+    // 修改：鼠标悬停1秒后开始播报，使用角色TTS
+    card.addEventListener('mouseenter', function() {
+        if (hoverTimer) {
+            clearTimeout(hoverTimer);
+        }
+        
+        hoverTimer = setTimeout(() => {
+            const description = this.querySelector('p').textContent;
+            const characterId = this.dataset.character;
+            speakDescriptionWithCharacterTTS(description, characterId);
+            isHoverSpeaking = true;
+        }, 1000);
+    });
+    
+    card.addEventListener('mouseleave', function() {
+        if (hoverTimer) {
+            clearTimeout(hoverTimer);
+            hoverTimer = null;
+        }
+        if (isHoverSpeaking) {
+            stopAudio();
+            isHoverSpeaking = false;
+        }
+    });
+});
+        
         backButton.addEventListener('click', goBackToSelection);
         sendButton.addEventListener('click', handleSendText);
         micButton.addEventListener('click', toggleRecording);
@@ -175,8 +215,8 @@
             } 
         });
 
-        // 语音识别初始化
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    // 语音识别初始化
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SpeechRecognition) {
             recognition = new SpeechRecognition();
             recognition.continuous = true;
@@ -188,15 +228,97 @@
             updateStatus('浏览器不支持语音识别');
         }
     }
+    // --- 新增：使用角色TTS的悬停播报函数 ---
+async function speakDescriptionWithCharacterTTS(text, characterId) {
+    if (!ttsCheckbox.checked) {
+        return;
+    }
 
+    // 获取对应角色的TTS配置
+    const character = characters[characterId];
+    if (!character) return;
+
+    try {
+        // 特别处理申公豹的"道友请留步"
+        let processedText = text;
+        if (characterId === 'shengongbao' && text.includes('道友请留步')) {
+            processedText = text.replace(/道友请留步/g, '道…道…道友请留步');
+        }
+
+        const response = await fetch('/api/tts', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json' 
+            },
+            body: JSON.stringify({ 
+                text: processedText,
+                tts_config: character.tts_config,
+                character_id: characterId
+            })
+        });
+
+        const responseData = await response.json();
+
+        if (!response.ok) {
+            if (responseData.useBrowserTTS) {
+                speakWithBrowserTTS(processedText);
+                return;
+            }
+            throw new Error(`TTS服务错误: ${response.status}`);
+        }
+
+        if (responseData.useBrowserTTS) {
+            speakWithBrowserTTS(processedText);
+            return;
+        }
+
+        if (responseData.data) {
+            const audioData = Uint8Array.from(atob(responseData.data), c => c.charCodeAt(0));
+            await playAudioDataForHover(audioData.buffer);
+        } else {
+            throw new Error('没有音频数据返回');
+        }
+
+    } catch (error) {
+        console.error('悬停TTS合成失败:', error);
+        speakWithBrowserTTS(text);
+    }
+}
+
+// --- 新增：悬停播报的音频播放函数 ---
+async function playAudioDataForHover(audioBuffer) {
+    return new Promise((resolve, reject) => {
+        stopAudio();
+        
+        if (!audioContext || audioContext.state !== 'running') {
+            initAudioSystem();
+        }
+        
+        audioContext.decodeAudioData(audioBuffer)
+            .then(decodedData => {
+                const source = audioContext.createBufferSource();
+                source.buffer = decodedData;
+                source.connect(audioContext.destination);
+                source.start(0);
+                
+                source.onended = () => {
+                    resolve();
+                };
+            })
+            .catch(reject);
+    });
+}
     // --- 模块: 核心交互逻辑 ---
     function selectCharacter(characterId) {
         currentCharacter = characters[characterId];
         chatHeaderName.textContent = currentCharacter.name;
         
-        // 修复：正确设置标题栏头像
+    // 修复：正确设置标题栏头像（添加错误处理）
         chatHeaderImg.src = currentCharacter.img;
         chatHeaderImg.alt = currentCharacter.name;
+        chatHeaderImg.onerror = function() {
+            this.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjNDQ0Ii8+PHRleHQgeD0iMjAiIHk9IjIwIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM4ODgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIwLjNlbSI+5Lq6PC90ZXh0Pjwvc3ZnPg==';
+        };
         
         chatLog.innerHTML = '';
         chatHistory = [{ role: "system", content: currentCharacter.systemPrompt }];
@@ -206,7 +328,15 @@
         // 初始化音频系统
         initAudioSystem();
         
-        const welcomeMessage = `我是${currentCharacter.name}，有什么事吗？`;
+        // 为每个角色设置不同的开场白
+        const welcomeMessages = {
+            kiana: '哇！今天天气真不错呢！你是来找本小姐玩的吗？嘿嘿，我可是最强的女武神哦！',
+            shengongbao: '道...道友请留步。今日在此相遇，想必是天道安排的缘分，不知有何指教？',
+            zeus: '凡人，你竟敢打扰奥林匹斯之王的沉思？说出你的来意。'
+        };
+        
+        const welcomeMessage = welcomeMessages[characterId] || `我是${currentCharacter.name}，有什么事吗？`;
+        
         addMessage('bot', welcomeMessage);
         speakWithQiniuTTS(welcomeMessage);
         chatHistory.push({ role: "assistant", content: welcomeMessage });
@@ -304,8 +434,8 @@
         isTTSPlaying = true;
 
         try {
-            // 修复：移除括号内容和星号动作描述
-            const filteredText = text.replace(/[\(\)（）]/g, '').replace(/\*[^*]*\*/g, '');
+            // 移除括号内容和星号动作描述
+            const filteredText = text.replace(/[\(\)()]/g, '').replace(/\*[^*]*\*/g, '');
             
             const response = await fetch('/api/tts', {
                 method: 'POST',
@@ -315,7 +445,7 @@
                 body: JSON.stringify({ 
                     text: filteredText,
                     tts_config: currentCharacter.tts_config,
-                    character_id: currentCharacter.id  // 新增：传递角色ID用于后端情绪处理
+                    character_id: currentCharacter.id
                 })
             });
 
@@ -343,7 +473,7 @@
 
         } catch (error) {
             console.error('TTS合成失败:', error);
-            const filteredText = text.replace(/[\(\)（）]/g, '').replace(/\*[^*]*\*/g, '');
+            const filteredText = text.replace(/[\(\)()]/g, '').replace(/\*[^*]*\*/g, '');
             speakWithBrowserTTS(filteredText);
         } finally {
             isTTSPlaying = false;
