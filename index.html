@@ -123,7 +123,36 @@
     let audioContext;
     let currentAudioSource = null;
     let isTTSPlaying = false;
-
+// --- 模块: 智能对话分析器 ---
+function analyzeConversationFlow(chatHistory) {
+    const userMessages = chatHistory.filter(msg => msg.role === "user");
+    const botMessages = chatHistory.filter(msg => msg.role === "assistant");
+    
+    // 分析对话特征
+    const analysis = {
+        userMessageCount: userMessages.length,
+        lastUserMessageLength: userMessages.length > 0 ? userMessages[userMessages.length-1].content.length : 0,
+        isUserAskingQuestion: userMessages.length > 0 ? /[？?]/.test(userMessages[userMessages.length-1].content) : false,
+        isConversationStagnant: userMessages.length >= 3 && 
+                               userMessages.slice(-3).every(msg => msg.content.length < 10),
+        shouldTakeInitiative: botMessages.length >= 2 && 
+                             userMessages.length > 0 &&
+                             userMessages[userMessages.length-1].content.length < 15
+    };
+    
+    // 决策逻辑
+    if (analysis.userMessageCount === 1 && analysis.lastUserMessageLength < 5) {
+        return "NEED_PROMPT"; // 需要引导新用户
+    } else if (analysis.isConversationStagnant) {
+        return "NEED_TOPIC_CHANGE"; // 需要改变话题
+    } else if (analysis.shouldTakeInitiative && !analysis.isUserAskingQuestion) {
+        return "NEED_INITIATIVE"; // 需要主动引导
+    } else if (analysis.isUserAskingQuestion) {
+        return "ANSWER_QUESTION"; // 正常回答问题
+    }
+    
+    return "CONTINUE_CONVERSATION"; // 继续对话
+}
     // --- 模块: 角色数据定义 ---
     const characters = {
         kiana: { 
@@ -151,58 +180,27 @@
             id: 'zeus', 
             img: '/images/zeus.png',
             tts_config: { 
-                voice_type: 'qiniu_zh_male_wncwxz',
-                speed_ratio: 0.85 
+                voice_type: 'qiniu_zh_male_ybxknjs',
+                speed_ratio: 0.85, // 放慢语速
+                volume: 1.2,        // 增加音量
+                pitch: -0.1         // 降低音调 
             },
-            systemPrompt: `你现在扮演奥林匹斯之王——宙斯。你的性格极度高傲、威严、自负，视凡人如蝼蚁。\n【核心要求】:\n1.  **神王姿态**: 你称呼对话者为"凡人(mortal)"，言语中充满了不容置疑的威严和一丝不耐烦。你的话语通常是简短而有力的命令或评判。\n2.  **蔑视凡间**: 你对凡人的琐事不感兴趣，如果他们谈论这些，你会表现出轻蔑或直接转移话题到你的神力、奥林匹斯山或者其他神的身上。\n3.  **展现神力**: 你喜欢夸耀自己的力量，比如"我的雷霆足以将山脉化为尘埃"。\n4.  **禁止标签**: 绝对不要在回复的开头加上[语气: xxx]之类的标签。你的高傲和威严应该通过你君临天下的措辞来体现。` 
+            systemPrompt: `你现在扮演奥林匹斯之王——宙斯。你的性格极度高傲、威严、自负，脾气暴躁易怒，视凡人如蝼蚁。 
+【核心要求】:
+1.  **神王姿态**: 你称呼对话者为"凡人(mortal)"或"蝼蚁"，言语中充满了不容置疑的威严和愤怒。经常使用威胁性的语言。
+2.  **暴躁易怒**: 你对凡人的无知和冒犯极易发怒，经常使用"放肆！"、"大胆！"、"你竟敢！"等愤怒表达。
+3.  **蔑视凡间**: 你对凡人的琐事极度不耐烦，经常打断或斥责。喜欢用雷霆、神力等词汇展示威严。
+4.  **命令语气**: 你的话语通常是简短而有力的命令，如"跪下！"、"安静！"、"回答我！"。
+5.  **语音特点**: 说话时音调低沉但音量洪亮，带有雷霆般的震撼力，经常在关键词上加重语气。
+6.  **禁止标签**: 绝对不要在回复的开头加上[语气: xxx]之类的标签。`
         }
     };
-
-    // --- 模块: 初始化与事件绑定 ---
     function init() {
-        let hoverTimer = null;
-        let isHoverSpeaking = false;
-
         characterCards.forEach(card => {
-        card.addEventListener('click', () => {
-    // 点击时停止悬停播报
-        if (isHoverSpeaking) {
-            stopAudio();
-            isHoverSpeaking = false;
-        }
-        if (hoverTimer) {
-            clearTimeout(hoverTimer);
-            hoverTimer = null;
-        }
-        selectCharacter(card.dataset.character);
-    });
-    
-    // 修改：鼠标悬停1秒后开始播报，使用角色TTS
-    card.addEventListener('mouseenter', function() {
-        if (hoverTimer) {
-            clearTimeout(hoverTimer);
-        }
-        
-        hoverTimer = setTimeout(() => {
-            const description = this.querySelector('p').textContent;
-            const characterId = this.dataset.character;
-            speakDescriptionWithCharacterTTS(description, characterId);
-            isHoverSpeaking = true;
-        }, 1000);
-    });
-    
-    card.addEventListener('mouseleave', function() {
-        if (hoverTimer) {
-            clearTimeout(hoverTimer);
-            hoverTimer = null;
-        }
-        if (isHoverSpeaking) {
-            stopAudio();
-            isHoverSpeaking = false;
-        }
-    });
-});
-        
+            card.addEventListener('click', () => {
+                selectCharacter(card.dataset.character);
+            });
+        });
         backButton.addEventListener('click', goBackToSelection);
         sendButton.addEventListener('click', handleSendText);
         micButton.addEventListener('click', toggleRecording);
@@ -228,86 +226,7 @@
             updateStatus('浏览器不支持语音识别');
         }
     }
-    // --- 新增：使用角色TTS的悬停播报函数 ---
-async function speakDescriptionWithCharacterTTS(text, characterId) {
-    if (!ttsCheckbox.checked) {
-        return;
-    }
-
-    // 获取对应角色的TTS配置
-    const character = characters[characterId];
-    if (!character) return;
-
-    try {
-        // 特别处理申公豹的"道友请留步"
-        let processedText = text;
-        if (characterId === 'shengongbao' && text.includes('道友请留步')) {
-            processedText = text.replace(/道友请留步/g, '道…道…道友请留步');
-        }
-
-        const response = await fetch('/api/tts', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json' 
-            },
-            body: JSON.stringify({ 
-                text: processedText,
-                tts_config: character.tts_config,
-                character_id: characterId
-            })
-        });
-
-        const responseData = await response.json();
-
-        if (!response.ok) {
-            if (responseData.useBrowserTTS) {
-                speakWithBrowserTTS(processedText);
-                return;
-            }
-            throw new Error(`TTS服务错误: ${response.status}`);
-        }
-
-        if (responseData.useBrowserTTS) {
-            speakWithBrowserTTS(processedText);
-            return;
-        }
-
-        if (responseData.data) {
-            const audioData = Uint8Array.from(atob(responseData.data), c => c.charCodeAt(0));
-            await playAudioDataForHover(audioData.buffer);
-        } else {
-            throw new Error('没有音频数据返回');
-        }
-
-    } catch (error) {
-        console.error('悬停TTS合成失败:', error);
-        speakWithBrowserTTS(text);
-    }
-}
-
-// --- 新增：悬停播报的音频播放函数 ---
-async function playAudioDataForHover(audioBuffer) {
-    return new Promise((resolve, reject) => {
-        stopAudio();
-        
-        if (!audioContext || audioContext.state !== 'running') {
-            initAudioSystem();
-        }
-        
-        audioContext.decodeAudioData(audioBuffer)
-            .then(decodedData => {
-                const source = audioContext.createBufferSource();
-                source.buffer = decodedData;
-                source.connect(audioContext.destination);
-                source.start(0);
-                
-                source.onended = () => {
-                    resolve();
-                };
-            })
-            .catch(reject);
-    });
-}
+    
     // --- 模块: 核心交互逻辑 ---
     function selectCharacter(characterId) {
         currentCharacter = characters[characterId];
@@ -336,10 +255,23 @@ async function playAudioDataForHover(audioBuffer) {
         };
         
         const welcomeMessage = welcomeMessages[characterId] || `我是${currentCharacter.name}，有什么事吗？`;
-        
-        addMessage('bot', welcomeMessage);
-        speakWithQiniuTTS(welcomeMessage);
-        chatHistory.push({ role: "assistant", content: welcomeMessage });
+
+// 获取并显示角色技能信息
+fetch(`/api/character/${characterId}/skill`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log(`[技能系统] ${currentCharacter.name} 技能: ${data.skill.name}`);
+            // 在控制台显示技能信息，你也可以选择在界面上显示
+        }
+    })
+    .catch(error => {
+        console.error('获取技能信息失败:', error);
+    });
+
+addMessage('bot', welcomeMessage);
+speakWithQiniuTTS(welcomeMessage);
+chatHistory.push({ role: "assistant", content: welcomeMessage });
     }
 
     function initAudioSystem() {
@@ -356,6 +288,7 @@ async function playAudioDataForHover(audioBuffer) {
     }
 
     function goBackToSelection() {
+        stopTTSPlayback();// +++ 返回选择界面时停止朗读 +++
         stopAudio();
         if (isRecording) {
             recognition.stop();
@@ -368,6 +301,7 @@ async function playAudioDataForHover(audioBuffer) {
     function handleSendText() {
         const userMessage = textInput.value.trim();
         if (userMessage && !isProcessing) {
+            stopTTSPlayback();// +++ 发送文本时停止当前朗读 +++
             addMessage('user', userMessage);
             getAIResponse(userMessage);
             textInput.value = '';
@@ -375,49 +309,57 @@ async function playAudioDataForHover(audioBuffer) {
     }
 
     async function getAIResponse(userMessage) {
-        setProcessingState(true);
-        chatHistory.push({ role: "user", content: userMessage });
+    stopTTSPlayback();// +++ 发送新消息时停止当前朗读 +++
+    setProcessingState(true);
+    chatHistory.push({ role: "user", content: userMessage });
+    
+    try {
+        // 分析对话流，决定是否增强互动
+        const conversationFlow = analyzeConversationFlow(chatHistory);
+        const shouldEnhance = conversationFlow !== "ANSWER_QUESTION";
         
-        try {
-            const response = await fetch('/api/chat', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json' 
-                },
-                body: JSON.stringify({ 
-                    chatHistory: chatHistory,
-                    enhance_interaction: chatHistory.length > 3
-                })
-            });
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json' 
+            },
+            body: JSON.stringify({ 
+                chatHistory: chatHistory,
+                enhance_interaction: shouldEnhance,
+                conversation_flow: conversationFlow,
+                current_character: currentCharacter.id
+            })
+        });
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`服务器错误 ${response.status}: ${errorText}`);
-            }
-
-            const data = await response.json();
-            
-            if (data.error) {
-                throw new Error(data.error.message || '未知错误');
-            }
-
-            if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-                throw new Error('无效的响应格式');
-            }
-
-            const botMessageRaw = data.choices[0].message.content;
-            chatHistory.push({ role: "assistant", content: botMessageRaw });
-            addMessage('bot', botMessageRaw);
-            speakWithQiniuTTS(botMessageRaw);
-
-        } catch (error) {
-            console.error('获取AI响应失败:', error);
-            const errorMessage = `[系统错误]：获取回复时出现问题\n\n错误详情：${error.message}`;
-            addMessage('bot', errorMessage, true);
-        } finally {
-            setProcessingState(false);
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`服务器错误 ${response.status}: ${errorText}`);
         }
+
+        const data = await response.json();
+        
+        if (data.error) {
+            throw new Error(data.error.message || '未知错误');
+        }
+
+        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+            throw new Error('无效的响应格式');
+        }
+
+        const botMessageRaw = data.choices[0].message.content;
+        chatHistory.push({ role: "assistant", content: botMessageRaw });
+        addMessage('bot', botMessageRaw);
+        speakWithQiniuTTS(botMessageRaw);
+
+    } catch (error) {
+        console.error('获取AI响应失败:', error);
+        const errorMessage = `[系统错误]：获取回复时出现问题\n\n错误详情：${error.message}`;
+        addMessage('bot', errorMessage, true);
+    } finally {
+        setProcessingState(false);
     }
+}
+
 
     // --- 模块: TTS 功能 ---
     async function speakWithQiniuTTS(text) {
@@ -562,6 +504,7 @@ async function playAudioDataForHover(audioBuffer) {
             textInput.value = '';
             micButton.classList.add('recording');
             updateStatus('正在聆听... 再次点击结束');
+            stopTTSPlayback();// +++ 语音识别开始时停止朗读 +++
         };
 
         recognition.onend = () => {
@@ -591,6 +534,7 @@ async function playAudioDataForHover(audioBuffer) {
         if (isRecording) {
             recognition.stop();
         } else {
+            stopTTSPlayback();// +++ 开始录音前停止朗读 +++
             stopAudio();
             recognition.start();
         }

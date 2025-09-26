@@ -7,10 +7,236 @@ const fetch = require('node-fetch');
 const app = express();
 const port = process.env.PORT || 3000;
 const QINIU_AI_API_KEY = process.env.QINIU_AI_API_KEY;
+// --- 新增：智能记忆管理模块 ---
+class ConversationMemory {
+    constructor(maxTokens = 4000) {
+        this.maxTokens = maxTokens;
+        this.importantKeywords = new Set();
+    }
+    
+    estimateTokens(text) {
+        return Math.ceil(text.length * 0.75);
+    }
+    
+    extractKeywords(messages) {
+        const keywords = new Set();
+        const recentText = messages.slice(-3).map(msg => msg.content).join(' ');
+        
+        const nounPatterns = [
+            /(?:我想|我要|我喜欢|我讨厌)([^，。！？]+)/g,
+            /(?:地点|位置|地方|城市)([^，。！？]+)/g,
+            /(?:时间|时候|日期)([^，。！？]+)/g,
+            /(?:人物|朋友|家人)([^，。！？]+)/g
+        ];
+        
+        nounPatterns.forEach(pattern => {
+            let match;
+            while ((match = pattern.exec(recentText)) !== null) {
+                if (match[1] && match[1].length > 1) {
+                    keywords.add(match[1].trim());
+                }
+            }
+        });
+        
+        return Array.from(keywords);
+    }
+    
+    optimizeHistory(messages, currentFlow) {
+        if (messages.length <= 8) return messages;
+        
+        const totalTokens = messages.reduce((sum, msg) => sum + this.estimateTokens(msg.content), 0);
+        if (totalTokens <= this.maxTokens * 0.8) return messages;
+        
+        console.log(`[记忆管理] 开始优化，当前token: ${totalTokens}, 限制: ${this.maxTokens}`);
+        
+        const systemMessage = messages[0];
+        const recentMessages = messages.slice(-6);
+        const importantWords = this.extractKeywords(messages);
+        
+        const importantMessages = messages.filter((msg, index) => {
+            if (index === 0) return true;
+            if (index >= messages.length - 6) return true;
+            return importantWords.some(word => msg.content.includes(word));
+        });
+        
+        const optimizedHistory = [systemMessage];
+        const seenIndices = new Set();
+        
+        [...importantMessages, ...recentMessages].forEach(msg => {
+            const index = messages.indexOf(msg);
+            if (index !== -1 && !seenIndices.has(index)) {
+                optimizedHistory.push(msg);
+                seenIndices.add(index);
+            }
+        });
+        
+        if (optimizedHistory.length > 12) {
+            return [systemMessage, ...messages.slice(-10)];
+        }
+        
+        console.log(`[记忆管理] 优化完成: ${messages.length} -> ${optimizedHistory.length} 条消息`);
+        return optimizedHistory;
+    }
+}
 
+const memoryManager = new ConversationMemory();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, '')));
+// --- 新增：角色技能系统 ---
+class CharacterSkills {
+    constructor() {
+        this.skills = {
+            kiana: {
+                name: "女武神的直觉",
+                description: "能感知用户的情绪状态并相应调整对话",
+                cooldown: 3,
+                lastTrigger: 0
+            },
+            shengongbao: {
+                name: "蛊惑人心", 
+                description: "在对话中随机插入暗示性话语，引导用户思维",
+                cooldown: 2,
+                lastTrigger: 0
+            },
+            zeus: {
+                name: "神之洞察",
+                description: "能发现对话中的矛盾点并指出来",
+                cooldown: 4,
+                lastTrigger: 0
+            }
+        };
+    }
+
+    // 琪亚娜技能：情绪感知
+    kianaSkill(messages, currentFlow) {
+        const userMessages = messages.filter(msg => msg.role === "user");
+        if (userMessages.length === 0) return null;
+
+        const lastUserMessage = userMessages[userMessages.length - 1].content;
+        const messageCount = userMessages.length;
+        
+        if (messageCount - this.skills.kiana.lastTrigger < this.skills.kiana.cooldown) {
+            return null;
+        }
+
+        const positiveWords = ['开心', '高兴', '喜欢', '爱', '棒', '好', '厉害'];
+        const negativeWords = ['难过', '伤心', '生气', '讨厌', '糟糕', '不好', '烦'];
+        const questionWords = ['为什么', '怎么', '如何', '?', '？'];
+
+        let emotion = 'neutral';
+        if (positiveWords.some(word => lastUserMessage.includes(word))) {
+            emotion = 'positive';
+        } else if (negativeWords.some(word => lastUserMessage.includes(word))) {
+            emotion = 'negative';
+        } else if (questionWords.some(word => lastUserMessage.includes(word))) {
+            emotion = 'curious';
+        }
+
+        const skillPrompts = {
+            positive: "【情绪感知】你察觉到用户心情很好，请用更加活泼开心的语气回应，可以分享一个有趣的小故事或笑话。",
+            negative: "【情绪感知】你感觉到用户情绪有些低落，请用温暖安慰的语气回应，表达关心和支持。",
+            curious: "【情绪感知】用户表现出强烈的好奇心，请用详细耐心的方式解答，可以适当扩展相关知识。",
+            neutral: "【情绪感知】用户情绪平稳，请用你标志性的元气满满的方式继续对话。"
+        };
+
+        if (skillPrompts[emotion]) {
+            this.skills.kiana.lastTrigger = messageCount;
+            return skillPrompts[emotion];
+        }
+
+        return null;
+    }
+
+    // 申公豹技能：心理暗示
+    shengongbaoSkill(messages, currentFlow) {
+        const messageCount = messages.filter(msg => msg.role === "user").length;
+        
+        if (messageCount - this.skills.shengongbao.lastTrigger < this.skills.shengongbao.cooldown) {
+            return null;
+        }
+
+        if (Math.random() > 0.3) return null;
+
+        const hints = [
+            "【蛊惑人心】在回复中巧妙地暗示'命运的安排'或'天意的指引'，让用户觉得你们的相遇是注定的。",
+            "【蛊惑人心】用反问的方式引导用户思考，例如'道友不觉得这一切太过巧合了吗？'",
+            "【蛊惑人心】暗示用户当前的选择可能不是最优的，用'或许另有蹊径'这样的模糊说法。"
+        ];
+
+        const selectedHint = hints[Math.floor(Math.random() * hints.length)];
+        this.skills.shengongbao.lastTrigger = messageCount;
+        return selectedHint;
+    }
+
+    // 宙斯技能：逻辑洞察
+    zeusSkill(messages, currentFlow) {
+        const userMessages = messages.filter(msg => msg.role === "user");
+        if (userMessages.length < 2) return null;
+
+        const messageCount = userMessages.length;
+        
+        if (messageCount - this.skills.zeus.lastTrigger < this.skills.zeus.cooldown) {
+            return null;
+        }
+
+        const recentUserMessages = userMessages.slice(-3).map(msg => msg.content);
+        let insight = null;
+
+        if (recentUserMessages.length >= 2) {
+            const lastMessage = recentUserMessages[recentUserMessages.length - 1].toLowerCase();
+            const secondLastMessage = recentUserMessages[recentUserMessages.length - 2].toLowerCase();
+
+            if ((lastMessage.includes('喜欢') && secondLastMessage.includes('讨厌')) ||
+                (lastMessage.includes('同意') && secondLastMessage.includes('反对'))) {
+                insight = "【神之洞察】你注意到用户的态度似乎发生了变化，请以神明的智慧指出这种矛盾。";
+            }
+            else if (lastMessage.includes('昨天') && secondLastMessage.includes('明天')) {
+                insight = "【神之洞察】你发现用户的时间描述存在混乱，请以威严的语气指出这一点。";
+            }
+        }
+
+        if (!insight && Math.random() > 0.7) {
+            const generalInsights = [
+                "【神之洞察】以神明的视角对用户的凡人思维进行一番点评，指出其局限性。",
+                "【神之洞察】用奥林匹斯山的例子来对比用户提到的事情，展现神界的优越性。"
+            ];
+            insight = generalInsights[Math.floor(Math.random() * generalInsights.length)];
+        }
+
+        if (insight) {
+            this.skills.zeus.lastTrigger = messageCount;
+            return insight;
+        }
+
+        return null;
+    }
+
+    checkSkills(characterId, messages, currentFlow) {
+        const skills = {
+            'kiana': () => this.kianaSkill(messages, currentFlow),
+            'shengongbao': () => this.shengongbaoSkill(messages, currentFlow),
+            'zeus': () => this.zeusSkill(messages, currentFlow)
+        };
+
+        if (skills[characterId]) {
+            return skills[characterId]();
+        }
+        return null;
+    }
+
+    getSkillDescription(characterId) {
+        if (this.skills[characterId]) {
+            return {
+                name: this.skills[characterId].name,
+                description: this.skills[characterId].description
+            };
+        }
+        return null;
+    }
+}
+
+const skillManager = new CharacterSkills();
 
 // 创建images目录存放本地头像
 const fs = require('fs');
@@ -41,15 +267,15 @@ app.post('/api/tts', async (req, res) => {
         // 情绪化处理
         let voiceType = tts_config.voice_type || 'qiniu_zh_male_ljfdxz';
         let speedRatio = tts_config.speed_ratio || 1.0;
+        let volume = 1.0; // 默认音量
+        let pitch = 0; // 默认音调
     
         let emotionalText = text;
       
-        // 申公豹的随机卡壳效果（完全随机，不依赖特定关键词）
-        if (character_id === 'shengongbao') {
-    emotionalText = addRandomStutter(emotionalText);
-        }
-        
-        // 自动语言检测和音色适配
+        // 申公豹的随机卡壳效果
+        if (character_id === 'shengongbao') {emotionalText = addRandomStutter(emotionalText);}
+        if (character_id === 'zeus') {emotionalText = enhanceZeusTextForTTS(emotionalText);}
+       // 自动语言检测和音色适配
         if (voiceType.includes('en_') && isChineseText(emotionalText)) {
             console.log('[TTS] 检测到中文文本使用英文音色，自动切换到中文音色');
             voiceType = 'qiniu_zh_male_ljfdxz';
@@ -62,7 +288,9 @@ app.post('/api/tts', async (req, res) => {
             audio: {
                 voice_type: voiceType,
                 encoding: "mp3",
-                speed_ratio: speedRatio
+                speed_ratio: speedRatio,
+                volume: volume, // +++ 新增音量参数 +++
+                pitch: pitch    // +++ 新增音调参数 +++
             },
             request: {
                 text: cleanText
@@ -139,9 +367,9 @@ function isChineseText(text) {
 // --- 增强的聊天API ---
 app.post('/api/chat', async (req, res) => {
     try {
-        const { chatHistory, enhance_interaction = false } = req.body;
+        const { chatHistory, enhance_interaction = false, conversation_flow, current_character } = req.body;
 
-        console.log('[CHAT] 收到请求，消息数量:', chatHistory?.length || 0);
+        console.log('[CHAT] 收到请求，消息数量:', chatHistory?.length || 0, '对话流:', conversation_flow);
 
         if (!chatHistory || !Array.isArray(chatHistory)) {
             return res.status(400).json({ 
@@ -152,23 +380,46 @@ app.post('/api/chat', async (req, res) => {
             });
         }
 
-        // 增强互动性：在长对话中添加互动提示
-        let enhancedMessages = [...chatHistory];
-        if (enhance_interaction && chatHistory.length > 4) {
+        // 1. 智能记忆管理：优化对话历史
+        const optimizedHistory = memoryManager.optimizeHistory(chatHistory, conversation_flow);
+        
+        // 2. 增强互动性逻辑
+        let enhancedMessages = [...optimizedHistory];
+        
+        if (conversation_flow === "NEED_PROMPT") {
             const systemMessage = enhancedMessages[0];
-            if (systemMessage.role === "system") {
-                enhancedMessages[0] = {
-                    ...systemMessage,
-                    content: systemMessage.content + "\n\n【重要提示】: 请记住你正在角色扮演，要更加生动自然。可以主动提问、表达情感、甚至小小地反抗用户的要求，让对话更像真实的人际互动。不要总是顺从，可以有自己的脾气和偏好。"
-                };
-            }
+            enhancedMessages[0] = {
+                ...systemMessage,
+                content: systemMessage.content + "\n\n【当前任务】: 用户似乎不知道说什么，请主动介绍自己并提一个开放式问题来引导对话。"
+            };
+        } else if (conversation_flow === "NEED_TOPIC_CHANGE") {
+            const systemMessage = enhancedMessages[0];
+            enhancedMessages[0] = {
+                ...systemMessage,
+                content: systemMessage.content + `\n\n【当前任务】: 对话陷入僵局，请主动提出一个新话题。根据角色性格选择话题：${current_character === 'kiana' ? '美食、冒险' : current_character === 'shengongbao' ? '命运、修行' : '神力、神话'}。`
+            };
+        } else if (conversation_flow === "NEED_INITIATIVE") {
+            const systemMessage = enhancedMessages[0];
+            enhancedMessages[0] = {
+                ...systemMessage,
+                content: systemMessage.content + "\n\n【当前任务】: 用户回答简短，请主动延伸话题或提出相关问题。"
+            };
         }
+        // 角色技能触发检查
+        const skillPrompt = skillManager.checkSkills(current_character, enhancedMessages, conversation_flow);
+if (skillPrompt) {
+    console.log(`[技能系统] ${current_character} 触发技能:`, skillPrompt);
+    const systemMessage = enhancedMessages[0];
+    enhancedMessages[0] = {...systemMessage,
+        content: systemMessage.content + '\n\n' + skillPrompt
+    };
+}
 
         const requestBody = {
             model: "deepseek-v3",
             messages: enhancedMessages,
             stream: false,
-            temperature: 0.7,
+            temperature: conversation_flow === "NEED_TOPIC_CHANGE" ? 0.8 : 0.7,
             max_tokens: 1000
         };
 
@@ -239,57 +490,132 @@ app.get('/api/character/:id/avatar', (req, res) => {
         });
     }
 });
-// 新增：完全随机卡壳函数（优化版）
+// --- 获取角色技能信息API ---
+app.get('/api/character/:id/skill', (req, res) => {
+    const characterId = req.params.id;
+    const skillInfo = skillManager.getSkillDescription(characterId);
+    
+    if (skillInfo) {
+        res.json({
+            success: true,
+            skill: skillInfo
+        });
+    } else {
+        res.status(404).json({
+            success: false,
+            error: '未找到该角色的技能信息'
+        });
+    }
+});
+// --- 优化版：申公豹卡壳机制 ---
 function addRandomStutter(text) {
     if (text.length < 3) return text;
     
-    const words = text.split('');
-    let result = [];
-    let stutterChance = 0.15; // 降低到15%的概率（原来是30%）
+    // 中文句子分隔符
+    const sentenceEnders = /[。！？；]/;
+    const punctuation = /[，。！？；：""''《》()【】]/;
     
-    for (let i = 0; i < words.length; i++) {
-        result.push(words[i]);
-        
-        // 检查下一个字符是否是标点符号
-        const nextChar = i < words.length - 1 ? words[i + 1] : '';
-        const isBeforePunctuation = /[，。！？；：""''《》()【】]/.test(nextChar);
-        
-        // 避免在标点符号前的最后一个字卡壳
-        if (isBeforePunctuation) {
-            continue;
+    // 分割成句子
+    const sentences = [];
+    let currentSentence = '';
+    
+    for (let i = 0; i < text.length; i++) {
+        currentSentence += text[i];
+        if (sentenceEnders.test(text[i]) || i === text.length - 1) {
+            sentences.push(currentSentence);
+            currentSentence = '';
         }
+    }
+    if (currentSentence) sentences.push(currentSentence);
+    
+    // 处理每个句子
+    const processedSentences = sentences.map(sentence => {
+        // 70%概率卡壳
+        if (Math.random() > 0.7) return sentence;
         
-        // 随机决定是否在当前字符后卡壳（降低频率）
-        if (Math.random() < stutterChance && i < words.length - 1) {
-            const currentChar = words[i];
+        // 获取可卡壳的位置（非标点、非句子末尾）
+        const candidatePositions = [];
+        const chars = sentence.split('');
+        
+        for (let i = 0; i < chars.length - 1; i++) {
+            const currentChar = chars[i];
+            const nextChar = chars[i + 1];
             
-            // 只在非标点符号的字符后卡壳
-            if (!/[，。！？；：""''《》()【】]/.test(currentChar)) {
-                // 随机选择卡壳模式：重复字符或添加停顿
-                const stutterType = Math.random() > 0.5 ? 'repeat' : 'pause';
-                
-                if (stutterType === 'repeat') {
-                    // 重复字符卡壳（降低重复次数）
-                    const repeatCount = Math.floor(Math.random() * 2) + 1; // 1-2次
-                    for (let j = 0; j < repeatCount; j++) {
-                        result.push(currentChar);
-                    }
-                } else {
-                    // 停顿卡壳（添加省略号，降低停顿长度）
-                    const pauseLength = Math.floor(Math.random() * 2) + 1; // 1-2个点
-                    result.push('…'.repeat(pauseLength));
-                }
+            // 排除条件：标点符号、连续卡壳位置、句子末尾
+            if (!punctuation.test(currentChar) && 
+                !punctuation.test(nextChar) &&
+                (i === 0 || !candidatePositions.includes(i - 1))) {
+                candidatePositions.push(i);
             }
         }
+        
+        if (candidatePositions.length === 0) return sentence;
+        
+        // 随机选择卡壳位置
+        const stutterPos = candidatePositions[Math.floor(Math.random() * candidatePositions.length)];
+        
+        // 生成卡壳效果
+        const stutterChar = chars[stutterPos];
+        const repeatCount = Math.floor(Math.random() * 3) + 2; // 2-4次重复（1-5次包含原字）
+        
+        // 创建自然结巴效果：随机间隔和音调变化
+        let stutterPattern = '';
+        let remainingRepeats = repeatCount;
+        
+        while (remainingRepeats > 0) {
+            const currentRepeats = Math.min(Math.floor(Math.random() * 2) + 1, remainingRepeats);
+            
+            // 添加重复字符
+            stutterPattern += stutterChar.repeat(currentRepeats);
+            remainingRepeats -= currentRepeats;
+            
+            // 添加随机停顿（概率性）
+            if (remainingRepeats > 0 && Math.random() > 0.4) {
+                const pauseDots = Math.floor(Math.random() * 2) + 1; // 1-2个点
+                stutterPattern += '…'.repeat(pauseDots);
+            }
+        }
+        
+        // 替换原字符
+        chars[stutterPos] = stutterPattern;
+        return chars.join('');
+    });
+    
+    return processedSentences.join('');
+}
+// --- 新增：宙斯语音增强函数 ---
+function enhanceZeusTextForTTS(text) {
+    let enhancedText = text;
+    
+    // 1. 为关键词语添加强调（通过重复或标点）
+    const emphasisWords = ['凡人', '蝼蚁', '愚蠢', '大胆', '雷霆', '神力'];
+    emphasisWords.forEach(word => {
+        const regex = new RegExp(word, 'g');
+        enhancedText = enhancedText.replace(regex, `${word}！`);
+    });
+    
+    // 2. 在句子结尾添加更强的语气
+    enhancedText = enhancedText.replace(/[。]/g, '！'); // 句号变感叹号
+    enhancedText = enhancedText.replace(/[？]/g, '？！'); // 问号加强
+    
+    // 3. 随机添加愤怒的语气词
+    const angerExclamations = ['哼！', '呵！', '哈！', '呸！', '哼哼！'];
+    const sentences = enhancedText.split(/[。！？]/);
+    if (sentences.length > 1 && Math.random() > 0.6) {
+        const randomExclamation = angerExclamations[Math.floor(Math.random() * angerExclamations.length)];
+        // 在句子开头或中间插入语气词
+        const insertPosition = Math.max(1, Math.floor(sentences.length * 0.3));
+        sentences.splice(insertPosition, 0, randomExclamation);
+        enhancedText = sentences.join('');
     }
     
-    // 特别处理"道友请留步" - 强制卡壳（但只在句中出现时）
-    if (text.includes('道友请留步') && !text.endsWith('道友请留步')) {
-        // 只在不是句子结尾时才卡壳
-        result = result.join('').replace(/道友请留步/g, '道…道…道友请留步').split('');
+    // 4. 为命令式语句添加强调
+    if (enhancedText.includes('！') && !enhancedText.includes('……')) {
+        // 在感叹句后添加强调停顿
+        enhancedText = enhancedText.replace(/！/g, '！……');
     }
     
-    return result.join('');
+    return enhancedText;
 }
 
 app.listen(port, () => {
