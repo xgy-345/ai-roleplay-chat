@@ -83,6 +83,68 @@ const memoryManager = new ConversationMemory();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, '')));
+// --- 新增：才艺检测和处理函数 ---
+function detectAndHandleTalentRequest(characterId, userMessage, currentSystemPrompt) {
+    const characterTalents = {
+        kiana: {
+            name: "讲故事",
+            triggerWords: ["讲故事", "讲个故事", "表演才艺", "来段故事", "说个故事"]
+        },
+        shengongbao: {
+            name: "绕口令", 
+            triggerWords: ["绕口令", "说段绕口令", "表演才艺", "来段绕口令"]
+        },
+        zeus: {
+            name: "哲学名言",
+            triggerWords: ["歇后语", "哲学", "名言", "表演才艺", "说句有哲理的话"]
+        }
+    };
+    
+    const talent = characterTalents[characterId];
+    if (!talent) return currentSystemPrompt;
+    
+    // 检查用户消息是否包含才艺触发词
+    const hasTalentRequest = talent.triggerWords.some(word => 
+        userMessage.includes(word)
+    );
+    
+    if (hasTalentRequest) {
+        console.log(`[才艺系统] ${characterId} 触发才艺表演: ${talent.name}`);
+        
+        const talentPrompts = {
+            kiana: `
+【才艺表演指令】: 用户要求你表演才艺（讲故事）。请即兴创作一个简短生动有趣的故事，故事可以关于：
+- 女武神的冒险经历和战斗故事
+- 与伙伴们的日常趣事
+- 关于美食的奇妙遭遇（特别是披萨）
+- 自创的童话或寓言故事
+
+要求：故事要简短（3-6句话），要有完整的情节和趣味性，体现琪亚娜活泼可爱的性格。可以在故事前后加上一些可爱的评论和互动。`,
+            
+            shengongbao: `
+【才艺表演指令】: 用户要求你表演才艺（绕口令）。请创作一段富有道家哲理的绕口令，内容可以涉及：
+- 阴阳五行相生相克
+- 命运和因果循环
+- 修炼和得道成仙
+- 带有你狡猾特点的双关语
+
+要求：绕口令要有一定的难度，但不能读的很顺畅。要体现结巴与绕口令的对抗感，最好每句都卡壳一下，但别都在开头卡壳。可以说完后加上一些意味深长的评论。`,
+            
+            zeus: `
+【才艺表演指令】: 用户要求你表演才艺（哲学名言/歇后语）。请说出富有神王威严的哲学思考或歇后语，内容可以关于：
+- 神权与凡人的关系
+- 雷霆和天空的象征意义
+- 权力和责任的哲学思考
+- 对凡人愚蠢行为的讽刺
+
+要求：语句要简短有力，充满威严，体现宙斯的高傲和对凡人的蔑视。可以说完后用居高临下的态度点评一番。`
+        };
+        
+        return currentSystemPrompt + (talentPrompts[characterId] || '');
+    }
+    
+    return currentSystemPrompt;
+}
 // --- 新增：角色技能系统 ---
 class CharacterSkills {
     constructor() {
@@ -265,8 +327,8 @@ app.post('/api/tts', async (req, res) => {
         }
 
         // 情绪化处理
-        let voiceType = tts_config.voice_type || 'qiniu_zh_male_ljfdxz';
-        let speedRatio = tts_config.speed_ratio || 1.0;
+        let voiceType = tts_config.voice_type || 'qiniu_zh_male_wncwxz';
+        let speedRatio = tts_config.speed_ratio || 1.1;
         let volume = 1.0; // 默认音量
         let pitch = 0; // 默认音调
     
@@ -275,6 +337,7 @@ app.post('/api/tts', async (req, res) => {
         // 申公豹的随机卡壳效果
         if (character_id === 'shengongbao') {emotionalText = addRandomStutter(emotionalText);}
         if (character_id === 'zeus') {emotionalText = enhanceZeusTextForTTS(emotionalText);}
+    
        // 自动语言检测和音色适配
         if (voiceType.includes('en_') && isChineseText(emotionalText)) {
             console.log('[TTS] 检测到中文文本使用英文音色，自动切换到中文音色');
@@ -382,10 +445,25 @@ app.post('/api/chat', async (req, res) => {
 
         // 1. 智能记忆管理：优化对话历史
         const optimizedHistory = memoryManager.optimizeHistory(chatHistory, conversation_flow);
-        
+    
         // 2. 增强互动性逻辑
         let enhancedMessages = [...optimizedHistory];
-        
+        // 获取最后一条用户消息
+        const userMessages = optimizedHistory.filter(msg => msg.role === "user");
+        const lastUserMessage = userMessages.length > 0 ? userMessages[userMessages.length - 1].content : "";
+        // 检测并处理才艺请求
+        if (lastUserMessage && current_character) {
+            const systemMessage = enhancedMessages[0];
+            const enhancedSystemPrompt = detectAndHandleTalentRequest(current_character, lastUserMessage, systemMessage.content);
+            
+            if (enhancedSystemPrompt !== systemMessage.content) {
+                enhancedMessages[0] = {
+                    ...systemMessage,
+                    content: enhancedSystemPrompt
+                };
+                console.log(`[才艺系统] ${current_character} 才艺指令已添加`);
+            }
+        }
         if (conversation_flow === "NEED_PROMPT") {
             const systemMessage = enhancedMessages[0];
             enhancedMessages[0] = {
@@ -617,6 +695,7 @@ function enhanceZeusTextForTTS(text) {
     
     return enhancedText;
 }
+
 
 app.listen(port, () => {
     console.log(`服务器启动成功: http://localhost:${port}`);
