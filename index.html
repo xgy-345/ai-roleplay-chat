@@ -5,6 +5,112 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI 角色扮演语音聊天</title>
     <style>
+        /* 搜索容器样式 */
+    .search-container {
+    margin: 20px auto 30px;
+    max-width: 400px;
+    position: relative;
+    }
+
+    .search-box {
+    display: flex;
+    background-color: var(--card-bg);
+    border-radius: 24px;
+    padding: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    border: 1px solid var(--border-color);
+    }
+
+    #search-input {
+    flex-grow: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    padding: 10px 15px;
+    font-size: 1em;
+    outline: none;
+    }
+
+    #search-button {
+    background: var(--accent-color);
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.3s;
+    }
+
+    #search-button:hover {
+    background-color: var(--accent-hover);
+    }
+
+    /* 搜索结果下拉框样式 */
+    .search-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background-color: var(--card-bg);
+    border-radius: 12px;
+    margin-top: 5px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 100;
+    display: none;
+    border: 1px solid var(--border-color);
+    }
+
+    .search-result-item {
+    padding: 12px 16px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: background-color 0.2s;
+    }
+
+    .search-result-item:hover {
+    background-color: rgba(255,255,255,0.05);
+    }
+
+    .search-result-item:last-child {
+    border-bottom: none;
+    }
+
+    .search-result-item img {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    object-fit: cover;
+    }
+
+    .search-result-item .result-info {
+    flex-grow: 1;
+    }
+
+    .search-result-item h4 {
+    margin: 0;
+    font-size: 1em;
+    color: var(--text-primary);
+    }
+
+    .search-result-item p {
+    margin: 2px 0 0;
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    }
+
+    .no-results {
+    padding: 16px;
+    text-align: center;
+    color: var(--text-secondary);
+   }
         /* 样式保持不变 */
         :root {
             --primary-bg: #121212; --secondary-bg: #1e1e1e; --card-bg: #2a2a2a;
@@ -54,6 +160,13 @@
     <div class="container">
         <div id="character-selection-screen">
             <h1>选择你的聊天伙伴</h1>
+            <div class="search-container">
+                <div class="search-box">
+                    <input type="text" id="search-input" placeholder="搜索角色...">
+                    <button id="search-button">🔍</button>
+                </div>
+                <div id="search-results" class="search-results"></div>
+            </div>
             <p>点击一个角色，开始与他进行对话</p>
             <div class="character-grid">
                 <div class="character-card" data-character="kiana">
@@ -113,6 +226,10 @@
     const stopTtsButton = document.getElementById('stop-tts-button');
     const ttsCheckbox = document.getElementById('tts-checkbox');
     const statusDiv = document.getElementById('status');
+    // +++ 搜索功能元素 +++
+    const searchInput = document.getElementById('search-input');
+    const searchButton = document.getElementById('search-button');
+    const searchResults = document.getElementById('search-results');
     
     // --- 模块: 全局状态变量 ---
     let currentCharacter;
@@ -224,6 +341,7 @@ function analyzeConversationFlow(chatHistory) {
                 selectCharacter(card.dataset.character);
             });
         });
+        initSearch();
         backButton.addEventListener('click', goBackToSelection);
         sendButton.addEventListener('click', handleSendText);
         micButton.addEventListener('click', toggleRecording);
@@ -248,6 +366,163 @@ function analyzeConversationFlow(chatHistory) {
             micButton.disabled = true;
             updateStatus('浏览器不支持语音识别');
         }
+        // +++ 搜索功能实现 +++
+function initSearch() {
+    searchInput.addEventListener('focus', showAllOptions);
+    searchInput.addEventListener('input', handleSearchInput);
+    searchButton.addEventListener('click', performSearch);
+    
+    // 点击页面其他地方关闭搜索结果
+    document.addEventListener('click', (e) => {
+        if (!searchInput.contains(e.target) && !searchResults.contains(e.target) && 
+            !searchButton.contains(e.target)) {
+            hideSearchResults();
+        }
+    });
+    
+    // 键盘事件
+    searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            performSearch();
+        } else if (e.key === 'Escape') {
+            hideSearchResults();
+        }
+    });
+}
+
+function showAllOptions() {
+    const allOptions = getAllOptions();
+    displaySearchResults(allOptions);
+}
+
+function hideSearchResults() {
+    searchResults.style.display = 'none';
+}
+
+function handleSearchInput() {
+    const query = searchInput.value.trim().toLowerCase();
+    
+    if (query === '') {
+        showAllOptions();
+        return;
+    }
+    
+    const results = searchOptions(query);
+    displaySearchResults(results);
+}
+
+function performSearch() {
+    const query = searchInput.value.trim().toLowerCase();
+    
+    if (query === '') {
+        showAllOptions();
+        return;
+    }
+    
+    const results = searchOptions(query);
+    
+    if (results.length === 1) {
+        selectSearchResult(results[0].id);
+    } else {
+        displaySearchResults(results);
+    }
+}
+
+function getAllOptions() {
+    return [
+        {
+            id: 'kiana',
+            name: '琪亚娜',
+            description: '元气十足的女武神',
+            img: '/images/kiana.png',
+            type: 'character'
+        },
+        {
+            id: 'shengongbao',
+            name: '申公豹',
+            description: '"道友，请留步。"',
+            img: '/images/shengongbao.png',
+            type: 'character'
+        },
+        {
+            id: 'zeus',
+            name: '宙斯',
+            description: '高傲的奥林匹斯之王',
+            img: '/images/zeus.png',
+            type: 'character'
+        },
+        {
+            id: 'more',
+            name: '更多选项',
+            description: '查看其他功能',
+            type: 'option'
+        }
+    ];
+}
+
+function searchOptions(query) {
+    const allOptions = getAllOptions();
+    return allOptions.filter(option => 
+        option.name.toLowerCase().includes(query) || 
+        option.description.toLowerCase().includes(query)
+    );
+}
+
+function displaySearchResults(results) {
+    searchResults.innerHTML = '';
+    
+    if (results.length === 0) {
+        const noResults = document.createElement('div');
+        noResults.className = 'no-results';
+        noResults.textContent = '没有找到匹配的角色';
+        searchResults.appendChild(noResults);
+    } else {
+        results.forEach(result => {
+            const item = document.createElement('div');
+            item.className = 'search-result-item';
+            
+            if (result.type === 'character') {
+                item.innerHTML = `
+                    <img src="${result.img}" alt="${result.name}" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzYiIGhlaWdodD0iMzYiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjM2IiBoZWlnaHQ9IjM2IiBmaWxsPSIjNDQ0Ii8+PHRleHQgeD0iMTgiIHk9IjE4IiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM4ODgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIwLjNlbSI+5Lq6PC90ZXh0Pjwvc3ZnPg=='">
+                    <div class="result-info">
+                        <h4>${result.name}</h4>
+                        <p>${result.description}</p>
+                    </div>
+                `;
+            } else {
+                item.innerHTML = `
+                    <div style="width: 36px; height: 36px; border-radius: 50%; background: var(--accent-color); 
+                                display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                        ➕
+                    </div>
+                    <div class="result-info">
+                        <h4>${result.name}</h4>
+                        <p>${result.description}</p>
+                    </div>
+                `;
+            }
+            
+            item.addEventListener('click', () => {
+                selectSearchResult(result.id, result.type);
+            });
+            
+            searchResults.appendChild(item);
+        });
+    }
+    
+    searchResults.style.display = 'block';
+}
+
+function selectSearchResult(id, type) {
+    hideSearchResults();
+    searchInput.value = '';
+    
+    if (type === 'character') {
+        selectCharacter(id);
+    } else if (id === 'more') {
+        alert('更多选项暂未开发');
+    }
+}
     }
     
     // --- 模块: 核心交互逻辑 ---
